@@ -1,0 +1,10 @@
+.
+├── app
+│   ├── agent.py
+│   └── main.py
+├── pyproject.toml
+├── README.md
+├── structure.txt
+└── uv.lock
+
+2 directories, 6 files

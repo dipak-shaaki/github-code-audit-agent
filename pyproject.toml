@@ -1,0 +1,20 @@
+[project]
+name = "github-code-audit-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.97.0",
+    "bandit>=1.9.4",
+    "fastapi>=0.136.1",
+    "google-genai>=1.74.0",
+    "groq>=1.2.0",
+    "pygithub>=2.9.1",
+    "python-dotenv>=1.2.2",
+    "requests>=2.33.1",
+    "ruff>=0.15.12",
+    "semgrep>=1.161.0",
+    "tenacity>=9.1.4",
+    "uvicorn>=0.46.0",
+]
