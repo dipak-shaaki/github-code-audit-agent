@@ -103,3 +103,10 @@ def analyze_file(filename, file_info):
         ruff_findings = run_ruff(code)
     
     return bandit_findings, ruff_findings
+
+
+
+# chunking strategy
+def chunk_files(file_contents, chunk_size=5):
+    items = list(file_contents.items())
+    return [dict(items[i:i+chunk_size]) for i in range(0, len(items), chunk_size)]

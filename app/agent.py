@@ -2,8 +2,11 @@ import os
 from dotenv import load_dotenv
 from github_client import get_open_prs, get_pr_details, get_all_repos
 from scanner import analyze_file
-from llm_client import generate_review
+from llm_client import generate_review, merge_reports
 from reporter import save_report
+from scanner import analyze_file, chunk_files
+from github_client import get_open_prs, get_pr_details, get_all_repos, get_pr_metadata, get_dependabot_alerts
+
 
 load_dotenv()
 
@@ -11,24 +14,39 @@ def scan_pr(repo_name, pr_number):
     print(f"\nScanning {repo_name} PR #{pr_number}...")
     try:
         pr_title, pr_body, diff, file_contents = get_pr_details(repo_name, pr_number)
+        metadata = get_pr_metadata(repo_name, pr_number)
+        dependabot = get_dependabot_alerts(repo_name)
 
-        all_bandit = {}
-        all_ruff = {}
+        chunks = chunk_files(file_contents)
+        print(f"  {len(file_contents)} files → {len(chunks)} chunks")
 
-        for filename, file_info in file_contents.items():
-         print(f"  Analyzing {filename}...")
-        bandit_findings, ruff_findings = analyze_file(filename, file_info)
-        all_bandit[filename] = bandit_findings
-        all_ruff[filename] = ruff_findings
+        mini_reports = []
 
+        for i, chunk in enumerate(chunks):
+            print(f"  Chunk {i+1}/{len(chunks)}...")
 
-        print("  Sending to Groq...")
-        report = generate_review(pr_title, pr_body, diff, all_bandit, all_ruff)
-        save_report(repo_name, pr_number, report)
+            all_bandit = {}
+            all_ruff = {}
+
+            for filename, file_info in chunk.items():
+                print(f"    Analyzing {filename}...")
+                bandit_findings, ruff_findings = analyze_file(filename, file_info)
+                all_bandit[filename] = bandit_findings
+                all_ruff[filename] = ruff_findings
+
+            mini_report = generate_review(
+                pr_title, pr_body, diff,
+                all_bandit, all_ruff,
+                metadata, dependabot
+            )
+            mini_reports.append(mini_report)
+
+        final_report = merge_reports(pr_title, mini_reports)
+        save_report(repo_name, pr_number, final_report)
 
     except Exception as e:
+        print(f"  Failed: {e}")
         import traceback
-        print(f"  ERROR: {e}")
         traceback.print_exc()
         log_failure(repo_name, pr_number, str(e))
 
@@ -53,8 +71,6 @@ def scan_all():
                 scan_pr(repo, pr_num)
         except Exception as e:
             print(f"  Could not process repo {repo}: {e}")
-
-
 
 
 
