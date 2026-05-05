@@ -1,12 +1,9 @@
 import os
 from dotenv import load_dotenv
-from github_client import get_open_prs, get_pr_details, get_all_repos
-from scanner import analyze_file
+from github_client import get_open_prs, get_pr_details, get_all_repos, get_pr_metadata, get_dependabot_alerts
+from scanner import analyze_file, chunk_files
 from llm_client import generate_review, merge_reports
 from reporter import save_report
-from scanner import analyze_file, chunk_files
-from github_client import get_open_prs, get_pr_details, get_all_repos, get_pr_metadata, get_dependabot_alerts
-
 
 load_dotenv()
 
@@ -75,4 +72,12 @@ def scan_all():
 
 
 if __name__ == "__main__":
-    scan_all()
+    pr_number = os.getenv("PR_NUMBER")
+    repo = os.getenv("GITHUB_REPO")
+    
+    if pr_number and repo:
+        # triggered by GitHub Actions — scan specific PR
+        scan_pr(repo, int(pr_number))
+    else:
+        # triggered by cron — scan everything
+        scan_all()

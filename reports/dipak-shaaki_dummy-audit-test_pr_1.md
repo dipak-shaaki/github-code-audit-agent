@@ -1,48 +1,48 @@
 # PR Audit Report
 
 ## Summary
-This PR audit report reviews the changes made in the `addauth` PR, focusing on security and code quality issues identified by Bandit and Ruff.
+This PR audit report summarizes the findings from the code review of the `addauth` PR. The report highlights security issues and code quality concerns that need to be addressed.
 
 ## What the Developer Was Trying to Do
 The developer was trying to add authentication functionality to the application, including user login and password reset features.
 
 ## Security Issues
-### Issue 1: Weak Hashing
-- File and line number: `app.py`, line 6
-- What is wrong: The code uses MD5 hashing for security purposes, which is considered weak.
-- Why it is dangerous: MD5 is vulnerable to collisions and can be easily broken by attackers, compromising password security.
+### Issue 1: Weak MD5 Hash
+- File and line number: `app.py`, line 5
+- What is wrong: The code uses a weak MD5 hash for password storage.
+- Why it is dangerous: MD5 is a weak hashing algorithm that can be easily broken by attackers, compromising user passwords.
 - Vulnerable code snippet:
-  ```python
+```python
 hashed = hashlib.md5(password.encode()).hexdigest()
 ```
 - Fixed code snippet:
-  ```python
+```python
 import bcrypt
 hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
 ```
 - Documentation link: https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html
 
 ### Issue 2: SQL Injection
-- File and line number: `app.py`, line 12
+- File and line number: `app.py`, line 11
 - What is wrong: The code constructs a SQL query using string concatenation, making it vulnerable to SQL injection attacks.
 - Why it is dangerous: An attacker could inject malicious SQL code, potentially leading to data breaches or system compromise.
 - Vulnerable code snippet:
-  ```python
+```python
 cursor.execute("SELECT * FROM users WHERE username = '" + username + "'")
 ```
 - Fixed code snippet:
-  ```python
+```python
 cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
 ```
 - Documentation link: https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html
 
 ## Code Quality Issues
 ### Issue 1: Unused Variable
-- File and line number: `app.py`, line 6
+- File and line number: `app.py`, line 5
 - What is wrong: The `hashed` variable is assigned a value but never used.
 - Fixed code snippet:
-  ```python
-# Remove the unused variable or use it as needed
+```python
+# Remove the unused variable or use it in the code
 # hashed = hashlib.md5(password.encode()).hexdigest()
 ```
 - Documentation link: https://docs.astral.sh/ruff/rules/f841
@@ -51,10 +51,10 @@ cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
 There are no existing review comments from teammates.
 
 ## Fixes with Code Examples
-To address the identified issues, the following fixes are recommended:
-- Replace MD5 hashing with bcrypt hashing for secure password storage.
-- Use parameterized SQL queries to prevent SQL injection attacks.
-- Remove or utilize the unused `hashed` variable.
+The fixes for the identified issues are provided above, including:
+- Replacing MD5 with bcrypt for password hashing
+- Using parameterized SQL queries to prevent SQL injection
+- Removing or using the unused `hashed` variable
 
 ## Overall Risk Assessment
-The overall PR risk is rated as **HIGH** due to the presence of significant security vulnerabilities, including weak hashing and SQL injection, which could compromise the application's security and user data. It is essential to address these issues before merging the PR to ensure the security and integrity of the application.
+The overall PR risk is rated as **HIGH** due to the presence of security vulnerabilities, including weak password hashing and SQL injection, which can compromise user data and system security. It is essential to address these issues before merging the PR to ensure the security and integrity of the application.

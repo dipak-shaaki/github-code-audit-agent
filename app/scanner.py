@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+import json
 
 def run_bandit(code):
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as tmp:
@@ -12,23 +13,27 @@ def run_bandit(code):
         capture_output=True, text=True
     )
     os.unlink(tmp_path)
-    
-    import json
+
+    lines = code.split("\n")
+
     try:
         data = json.loads(result.stdout)
         findings = []
         for issue in data.get("results", []):
+            line_num = issue["line_number"]
+            actual_line = lines[line_num - 1].strip() if line_num <= len(lines) else ""
             findings.append({
-                "line": issue["line_number"],
+                "line": line_num,
+                "actual_code": actual_line,
                 "issue": issue["issue_text"],
                 "severity": issue["issue_severity"],
                 "confidence": issue["issue_confidence"],
-                "code": issue["code"],
                 "fix_ref": issue["more_info"]
             })
         return findings
     except:
         return []
+
 
 def run_ruff(code):
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as tmp:
@@ -41,13 +46,17 @@ def run_ruff(code):
     )
     os.unlink(tmp_path)
 
-    import json
+    lines = code.split("\n")
+
     try:
         data = json.loads(result.stdout)
         findings = []
         for issue in data:
+            line_num = issue["location"]["row"]
+            actual_line = lines[line_num - 1].strip() if line_num <= len(lines) else ""
             findings.append({
-                "line": issue["location"]["row"],
+                "line": line_num,
+                "actual_code": actual_line,
                 "col": issue["location"]["column"],
                 "code": issue["code"],
                 "issue": issue["message"],
@@ -57,38 +66,6 @@ def run_ruff(code):
         return findings
     except:
         return []
-
-# def run_semgrep(code, ext):
-#     # map extension to semgrep language
-#     lang_map = {
-#         ".py": "python",
-#         ".js": "javascript",
-#         ".ts": "typescript",
-#         ".java": "java",
-#         ".go": "go",
-#         ".rb": "ruby",
-#         ".sql": "sql",
-#     }
-    
-#     lang = lang_map.get(ext)
-#     if not lang:
-#         return "No semgrep support for this file type."
-
-#     with tempfile.NamedTemporaryFile(suffix=ext, mode="w", delete=False) as tmp:
-#         tmp.write(code)
-#         tmp_path = tmp.name
-
-#     result = subprocess.run(
-#         [
-#             "semgrep",
-#             "--config", "auto",  # auto picks best rules for the language
-#             "--json",
-#             tmp_path
-#         ],
-#         capture_output=True, text=True
-#     )
-#     os.unlink(tmp_path)
-#     return result.stdout
 
 
 def analyze_file(filename, file_info):
@@ -101,12 +78,10 @@ def analyze_file(filename, file_info):
     if ext == ".py":
         bandit_findings = run_bandit(code)
         ruff_findings = run_ruff(code)
-    
+
     return bandit_findings, ruff_findings
 
 
-
-# chunking strategy
 def chunk_files(file_contents, chunk_size=5):
     items = list(file_contents.items())
     return [dict(items[i:i+chunk_size]) for i in range(0, len(items), chunk_size)]
