@@ -4,11 +4,9 @@ from github import Github, Auth
 from tenacity import retry, stop_after_attempt, wait_exponential
 from config.config import SCANNABLE_EXTENSIONS
 
-
 def get_github_client():
     auth = Auth.Token(os.getenv("GITHUB_TOKEN"))
     return Github(auth=auth)
-
 
 def get_all_repos():
     g = get_github_client()
@@ -74,7 +72,7 @@ def get_pr_details(repo_name, pr_number):
         diff_text += f.patch if f.patch else ""
 
         if ext in SCANNABLE:
-            # only extract added lines — not full file
+            # only extract added lines
             added_lines = extract_added_lines(f.patch)
             if added_lines:
                 changed_code = "\n".join([l["code"] for l in added_lines])

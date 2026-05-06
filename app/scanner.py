@@ -2,6 +2,28 @@ import os
 import subprocess
 import tempfile
 import json
+import ast
+
+
+def get_function_at_line(code, line_number):
+    """Find which function contains the given line and return full function code."""
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                if node.lineno <= line_number <= node.end_lineno:
+                    lines = code.split("\n")
+                    func_lines = lines[node.lineno - 1:node.end_lineno]
+                    return {
+                        "name": node.name,
+                        "start_line": node.lineno,
+                        "end_line": node.end_lineno,
+                        "code": "\n".join(func_lines)
+                    }
+    except:
+        pass
+    return None
+
 
 def run_bandit(code):
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as tmp:
@@ -22,9 +44,14 @@ def run_bandit(code):
         for issue in data.get("results", []):
             line_num = issue["line_number"]
             actual_line = lines[line_num - 1].strip() if line_num <= len(lines) else ""
+            func_info = get_function_at_line(code, line_num)
+
             findings.append({
                 "line": line_num,
                 "actual_code": actual_line,
+                "function_name": func_info["name"] if func_info else "module level",
+                "function_code": func_info["code"] if func_info else actual_line,
+                "function_start_line": func_info["start_line"] if func_info else line_num,
                 "issue": issue["issue_text"],
                 "severity": issue["issue_severity"],
                 "confidence": issue["issue_confidence"],
@@ -54,9 +81,14 @@ def run_ruff(code):
         for issue in data:
             line_num = issue["location"]["row"]
             actual_line = lines[line_num - 1].strip() if line_num <= len(lines) else ""
+            func_info = get_function_at_line(code, line_num)
+
             findings.append({
                 "line": line_num,
                 "actual_code": actual_line,
+                "function_name": func_info["name"] if func_info else "module level",
+                "function_code": func_info["code"] if func_info else actual_line,
+                "function_start_line": func_info["start_line"] if func_info else line_num,
                 "col": issue["location"]["column"],
                 "code": issue["code"],
                 "issue": issue["message"],
