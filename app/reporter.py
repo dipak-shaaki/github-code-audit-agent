@@ -6,4 +6,4 @@ def save_report(repo_name, pr_number, content):
     with open(filename, "w") as f:
         f.write(content)
     print(f"Report saved to {filename}")
-    return filename
+    return filename  # ← return path
