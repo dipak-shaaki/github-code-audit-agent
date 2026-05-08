@@ -1,40 +1,38 @@
 import os
 import requests
 
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
-SLACK_CHANNEL_ID = os.getenv("SLACK_CHANNEL_ID")
 
 def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
-    """Send summary message + upload full report file to Slack."""
+    """Send summary message + upload full report PDF to Slack."""
 
-    risk_emoji = {
-        "HIGH": "🔴",
-        "MEDIUM": "🟡",
-        "LOW": "🟢",
-        "UNKNOWN": "⚪"
-    }.get(risk_level, "⚪")
+    slack_token = os.getenv("SLACK_BOT_TOKEN")
+    channel_id = os.getenv("SLACK_CHANNEL_ID")
 
-    # read report
+    if not slack_token or not channel_id:
+        print("  Slack not configured — skipping notification")
+        return
+
+    # read markdown for summary
     try:
-        with open(report_path, "r") as f:
+        with open(report_path.replace(".pdf", ".md"), "r") as f:
             report_content = f.read()
     except:
         report_content = "Report file not found."
 
-    # extract top 3 issues — lines containing "Issue" or "Function:"
+    # extract top 3 issues
     lines = report_content.split("\n")
     issues = [l for l in lines if "Function:" in l or "### Issue" in l][:3]
     top_issues = "\n".join(issues) if issues else "See full report."
 
     # step 1 — send summary message
     message_payload = {
-        "channel": SLACK_CHANNEL_ID,
+        "channel": channel_id,
         "blocks": [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"🔍 PR Audit Report — {repo_name}"
+                    "text": f"PR Audit Report - {repo_name}"
                 }
             },
             {
@@ -50,7 +48,7 @@ def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
                     },
                     {
                         "type": "mrkdwn",
-                        "text": f"*Risk Level:*\n{risk_emoji} {risk_level}"
+                        "text": f"*Risk Level:*\n{risk_level}"
                     }
                 ]
             },
@@ -65,7 +63,7 @@ def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Full report attached below 👇"
+                    "text": "Full PDF report attached below."
                 }
             }
         ]
@@ -74,7 +72,7 @@ def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
     msg_response = requests.post(
         "https://slack.com/api/chat.postMessage",
         headers={
-            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+            "Authorization": f"Bearer {slack_token}",
             "Content-Type": "application/json"
         },
         json=message_payload
@@ -84,22 +82,58 @@ def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
         print(f"  Slack summary sent for {repo_name} PR #{pr_number}")
     else:
         print(f"  Slack message failed: {msg_response.json().get('error')}")
+        return
 
-    # step 2 — upload full report file
-    with open(report_path, "rb") as f:
-        file_response = requests.post(
-            "https://slack.com/api/files.upload",
-            headers={"Authorization": f"Bearer {SLACK_BOT_TOKEN}"},
+    # step 2 — upload PDF using new Slack API
+    try:
+        with open(report_path, "rb") as f:
+            file_data = f.read()
+
+        filename = os.path.basename(report_path)
+
+        # step 2a — get upload URL
+        url_response = requests.post(
+            "https://slack.com/api/files.getUploadURLExternal",
+            headers={"Authorization": f"Bearer {slack_token}"},
             data={
-                "channels": SLACK_CHANNEL_ID,
-                "filename": f"{repo_name.replace('/', '_')}_pr_{pr_number}.md",
-                "title": f"Full Audit Report — {repo_name} PR #{pr_number}",
-                "initial_comment": f"Complete audit report for PR #{pr_number}"
-            },
-            files={"file": f}
+                "filename": filename,
+                "length": len(file_data)
+            }
         )
 
-    if file_response.json().get("ok"):
-        print(f"  Report file uploaded to Slack")
-    else:
-        print(f"  File upload failed: {file_response.json().get('error')}")
+        url_data = url_response.json()
+        if not url_data.get("ok"):
+            print(f"  File upload failed: {url_data.get('error')}")
+            return
+
+        upload_url = url_data["upload_url"]
+        file_id = url_data["file_id"]
+
+        # step 2b — upload file content to URL
+        requests.post(
+            upload_url,
+            data=file_data,
+            headers={"Content-Type": "application/octet-stream"}
+        )
+
+        # step 2c — complete upload and share to channel
+        complete_response = requests.post(
+            "https://slack.com/api/files.completeUploadExternal",
+            headers={
+                "Authorization": f"Bearer {slack_token}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "files": [{"id": file_id}],
+                "channel_id": channel_id,
+                "initial_comment": f"Complete audit report for PR #{pr_number}"
+            }
+        )
+
+        if complete_response.json().get("ok"):
+            print(f"  PDF report uploaded to Slack")
+        else:
+            print(f"  File upload failed: {complete_response.json().get('error')}")
+
+    except Exception as e:
+        print(f"  File upload error: {e}")

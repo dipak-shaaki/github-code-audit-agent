@@ -118,6 +118,23 @@ def get_pr_metadata(repo_name, pr_number):
 
     return metadata
 
+def get_pr_commits(repo_name, pr_number):
+    """Fetch all commits in a PR with their messages and changed files."""
+    g = get_github_client()
+    repo = g.get_repo(repo_name)
+    pr = repo.get_pull(pr_number)
+
+    commits = []
+    for commit in pr.get_commits():
+        commits.append({
+            "sha": commit.sha[:7],           
+            "message": commit.commit.message, 
+            "author": commit.commit.author.name,
+            "date": str(commit.commit.author.date),
+            "files_changed": [f.filename for f in commit.files]
+        })
+
+    return commits
 
 def get_dependabot_alerts(repo_name):
     """Fetch GitHub Dependabot security alerts."""

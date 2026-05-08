@@ -1,6 +1,6 @@
 import os
 import json
-from groq import Groq
+from openai import OpenAI
 from typing import Dict, Any, List, Optional
 
 
@@ -13,11 +13,12 @@ def generate_review(
     metadata: Optional[Dict] = None,
     dependabot: Optional[List] = None,
     sonar_findings: Optional[List] = None,
+    commits: Optional[List] = None
 ) -> str:
-    
+
     prompt = f"""You are an expert senior software engineer specializing in security and code quality reviews.
 
-Your task is to produce a professional, actionable PR review based **only** on the data provided below.
+Your task is to produce a professional, actionable PR review based only on the data provided below.
 Do not invent or hallucinate any issues that are not present in the tool findings.
 
 PR TITLE: {pr_title}
@@ -29,7 +30,7 @@ PR METADATA:
 - Changed files: {metadata.get('changed_files', 0) if metadata else 0}
 - Additions: {metadata.get('additions', 0) if metadata else 0}
 - Deletions: {metadata.get('deletions', 0) if metadata else 0}
-- Branch: {metadata.get('head_branch', 'unknown')} → {metadata.get('base_branch', 'unknown')}
+- Branch: {metadata.get('head_branch', 'unknown')} -> {metadata.get('base_branch', 'unknown')}
 
 EXISTING REVIEW COMMENTS FROM TEAMMATES:
 {json.dumps(metadata.get('comments', []) if metadata else [], indent=2)}
@@ -40,67 +41,63 @@ DEPENDABOT SECURITY ALERTS:
 CODE DIFF:
 {diff}
 
-BANDIT SECURITY FINDINGS (by file):
+BANDIT SECURITY FINDINGS:
 {json.dumps(all_bandit, indent=2) if all_bandit else 'No Bandit findings.'}
 
-RUFF CODE QUALITY FINDINGS (by file):
+RUFF CODE QUALITY FINDINGS:
 {json.dumps(all_ruff, indent=2) if all_ruff else 'No Ruff findings.'}
 
 SONARCLOUD FINDINGS:
 {json.dumps(sonar_findings, indent=2) if sonar_findings else 'No SonarCloud findings.'}
 
+COMMIT HISTORY:
+{json.dumps(commits, indent=2) if commits else 'No commits found.'}
+
 Instructions:
-1. First, briefly explain what the developer was trying to achieve based on the PR title, description and diff.
+1. Briefly explain what the developer was trying to achieve.
 2. Only report real findings from Bandit, Ruff, or SonarCloud.
 3. For every issue:
-   - Show the full function/method containing the issue.
-   - Mark the exact problematic line with: `# ← ISSUE HERE`
-   - Explain why it's problematic and its risk.
-   - Provide a corrected version of the full function.
-   - Add a link to official documentation when possible.
-4. Group issues clearly under Security and Code Quality sections.
+   - Show the full function containing the issue
+   - Mark the exact problematic line with: # <- ISSUE HERE
+   - Explain why it is problematic and its risk
+   - Provide a corrected version of the full function
+   - Add a link to official documentation
+4. Group issues under Security and Code Quality sections.
 
-Output in clean Markdown with this exact structure:
+Output in clean Markdown:
 
 # PR Audit Report
 
 ## Summary
-(One paragraph overview)
 
 ## What the Developer Was Trying to Do
 
 ## Security Issues (Bandit + Dependabot + SonarCloud)
-(One subsection per issue)
 
 ## Code Quality Issues (Ruff + SonarCloud)
-(One subsection per issue)
 
 ## Teammate Comments Summary
 
 ## Overall Risk Assessment
-- **Risk Level**: LOW / MEDIUM / HIGH
-- Reason: (one sentence)
-
-Be concise, professional, and actionable."""
+- Risk Level: LOW / MEDIUM / HIGH
+- Reason: one sentence
+"""
 
     try:
-        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="gpt-5.4-mini",
             messages=[
-                {"role": "system", "content": "You are a strict, highly experienced senior engineer doing security and code reviews. Never hallucinate issues."},
+                {"role": "system", "content": "You are a strict senior engineer doing security and code reviews. Never hallucinate issues."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.1,      
-            max_tokens=6000,      
-            top_p=0.9,
+            temperature=0.1,
+            max_completion_tokens=4000,
         )
-        
         return response.choices[0].message.content.strip()
-        
+
     except Exception as e:
-        print(f" Error calling Groq API: {e}")
+        print(f"Error calling OpenAI API: {e}")
         return f"Failed to generate AI review: {str(e)}"
 
 
@@ -110,42 +107,35 @@ def merge_reports(pr_title: str, mini_reports: List[str]) -> str:
 
     combined = "\n\n---\n\n".join(mini_reports)
 
-    prompt = f"""You are merging multiple partial review reports for the same PR: **{pr_title}**
+    prompt = f"""Merge these partial review reports for PR: {pr_title}
 
 PARTIAL REPORTS:
 {combined}
 
-Create one clean, final, well-organized report.
-- Remove duplicate findings
-- Keep all unique valuable insights
-- Maintain high quality and clarity
-
-Use this exact structure:
+Create one clean final report removing duplicates:
 
 # PR Audit Report
-
 ## Summary
 ## What the Developer Was Trying to Do
 ## Security Issues
 ## Code Quality Issues
 ## Teammate Comments Summary
-## Overall Risk Assessment"""
+## Overall Risk Assessment
+"""
 
     try:
-        client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-        
+        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="gpt-5.4-mini",
             messages=[
-                {"role": "system", "content": "You are an expert at merging code review reports cleanly and removing duplicates."},
+                {"role": "system", "content": "You are an expert at merging code review reports cleanly."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.1,
-            max_tokens=6000,
+            max_completion_tokens=4000,
         )
-        
         return response.choices[0].message.content.strip()
-        
+
     except Exception as e:
-        print(f" Error merging reports: {e}")
-        return "\n\n".join(mini_reports)  # Fallback: just combine them
+        print(f"Error merging reports: {e}")
+        return "\n\n".join(mini_reports)
