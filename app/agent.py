@@ -6,10 +6,13 @@ from github_client import (
     get_all_repos,
     get_pr_metadata,
     get_dependabot_alerts,
-    get_pr_commits
+    get_pr_commits,
+    get_all_scannable_files
 )
-from scanner import analyze_file, chunk_files
-from llm_client import generate_review, merge_reports
+from subagents.security_agent import analyze_security
+from subagents.quality_agent import analyze_quality
+from subagents.actions_agent import analyze_github_actions
+from subagents.report_agent import generate_full_report
 from reporter import save_report
 from sonar_client import get_sonar_issues
 from slack_client import send_to_slack
@@ -18,7 +21,6 @@ load_dotenv()
 
 
 def already_scanned(repo_name, pr_number):
-    """Check if this PR has already been scanned."""
     scan_log = "logs/scanned.txt"
     key = f"{repo_name}#{pr_number}"
     if os.path.exists(scan_log):
@@ -28,81 +30,111 @@ def already_scanned(repo_name, pr_number):
 
 
 def mark_scanned(repo_name, pr_number):
-    """Mark PR as scanned to avoid rescanning."""
     os.makedirs("logs", exist_ok=True)
     with open("logs/scanned.txt", "a") as f:
         f.write(f"{repo_name}#{pr_number}\n")
 
 
-def log_failure(repo_name, pr_number, error):
-    """Log failed scans for debugging."""
+def log_failure(repo_name, identifier, error):
     os.makedirs("logs", exist_ok=True)
     with open("logs/failures.log", "a") as f:
-        f.write(f"{repo_name} PR#{pr_number}: {error}\n")
+        f.write(f"{repo_name} {identifier}: {error}\n")
 
 
-def scan_pr(repo_name, pr_number):
+def scan_repo(repo_name):
     """
-    Full scan pipeline for a single PR:
-    1. Fetch PR details, metadata, commits
-    2. Fetch SonarCloud findings
-    3. Run Bandit + Ruff on changed files
-    4. Generate report chunks
-    5. Merge into final report
-    6. Save as PDF + markdown
-    7. Send to Slack
+    Main Agent orchestrates full repo scan.
+    
+    Flow:
+    1. Fetch ALL scannable files from entire repo
+    2. Delegate to security subagent
+    3. Delegate to quality subagent  
+    4. Delegate to actions subagent
+    5. Fetch all open PRs and their changed files
+    6. Run subagents on each PR's changed files
+    7. Delegate to report subagent for final unified report
+    8. Save PDF + send to Slack
     """
-    print(f"\nScanning {repo_name} PR #{pr_number}...")
-
-    if already_scanned(repo_name, pr_number):
-        print(f"  Already scanned — skipping")
-        return
+    print(f"\nFull repo scan: {repo_name}")
 
     try:
-        # step 1 — fetch PR data
-        pr_title, pr_body, diff, file_contents = get_pr_details(repo_name, pr_number)
-        metadata = get_pr_metadata(repo_name, pr_number)
-        dependabot = get_dependabot_alerts(repo_name)
+        # step 1 — fetch all files in repo
+        print("  Fetching all files...")
+        all_files = get_all_scannable_files(repo_name)
+        print(f"  Found {len(all_files)} scannable files")
 
-        # step 2 — fetch commit history for context
-        commits = get_pr_commits(repo_name, pr_number)
-        print(f"  Found {len(commits)} commits in PR")
+        # step 2 — delegate to security subagent
+        print("  Security subagent running...")
+        repo_security = analyze_security(all_files)
+        print(f"  Security: {len(repo_security)} files with issues")
 
-        # step 3 — fetch SonarCloud findings
+        # step 3 — delegate to quality subagent
+        print("  Quality subagent running...")
+        repo_quality = analyze_quality(all_files)
+        print(f"  Quality: {len(repo_quality)} files with issues")
+
+        # step 4 — delegate to actions subagent
+        print("  Actions subagent running...")
+        repo_actions = analyze_github_actions(all_files)
+        print(f"  Actions: {len(repo_actions)} workflow files with issues")
+
+        # step 5 — fetch SonarCloud full repo findings
         print("  Fetching SonarCloud findings...")
-        sonar_findings = get_sonar_issues(pr_number=pr_number)
-        print(f"  SonarCloud: {len(sonar_findings)} issues found")
+        sonar_findings = get_sonar_issues()  # no pr_number = full repo
+        print(f"  SonarCloud: {len(sonar_findings)} issues")
 
-        # step 4 — chunk files and scan
-        chunks = chunk_files(file_contents)
-        print(f"  {len(file_contents)} files -> {len(chunks)} chunks")
+        # step 6 — scan each open PR
+        pr_findings = {}
+        commits_by_pr = {}
 
-        mini_reports = []
+        open_prs = get_open_prs(repo_name)
+        print(f"  Found {len(open_prs)} open PRs: {open_prs}")
 
-        for i, chunk in enumerate(chunks):
-            print(f"  Chunk {i+1}/{len(chunks)}...")
-            all_bandit = {}
-            all_ruff = {}
+        for pr_num in open_prs:
+            print(f"  Scanning PR #{pr_num}...")
 
-            for filename, file_info in chunk.items():
-                print(f"    Analyzing {filename}...")
-                bandit_findings, ruff_findings = analyze_file(filename, file_info)
-                all_bandit[filename] = bandit_findings
-                all_ruff[filename] = ruff_findings
+            if already_scanned(repo_name, pr_num):
+                print(f" PR #{pr_num} Already scanned  skipping")
+                continue
 
-            mini_report = generate_review(
-                pr_title, pr_body, diff,
-                all_bandit, all_ruff,
-                metadata, dependabot,
-                sonar_findings,
-                commits
-            )
-            mini_reports.append(mini_report)
+            try:
+                pr_title, pr_body, diff, pr_files = get_pr_details(repo_name, pr_num)
+                commits = get_pr_commits(repo_name, pr_num)
+                commits_by_pr[pr_num] = commits
 
-        # step 5 — merge chunks
-        final_report = merge_reports(pr_title, mini_reports)
+                # run subagents on PR changed files only
+                pr_security = analyze_security(pr_files)
+                pr_quality = analyze_quality(pr_files)
+                pr_actions = analyze_github_actions(pr_files)
 
-        # step 6 — extract risk level BEFORE saving
+                pr_findings[pr_num] = {
+                    "title": pr_title,
+                    "body": pr_body,
+                    "diff": diff,
+                    "security": pr_security,
+                    "quality": pr_quality,
+                    "actions": pr_actions
+                }
+
+                mark_scanned(repo_name, pr_num)
+
+            except Exception as e:
+                print(f"    PR #{pr_num} failed: {e}")
+                log_failure(repo_name, f"PR#{pr_num}", str(e))
+
+        # step 7 — report subagent generates final unified report
+        print("  Report subagent generating final report...")
+        final_report = generate_full_report(
+            repo_name,
+            repo_security,
+            repo_quality,
+            repo_actions,
+            sonar_findings,
+            pr_findings,
+            commits_by_pr
+        )
+
+        # step 8 — extract risk level
         risk_level = "UNKNOWN"
         if "HIGH" in final_report.upper():
             risk_level = "HIGH"
@@ -111,51 +143,46 @@ def scan_pr(repo_name, pr_number):
         elif "LOW" in final_report.upper():
             risk_level = "LOW"
 
-        # step 7 — save PDF + markdown
-        report_path = save_report(repo_name, pr_number, final_report, risk_level)
+        # step 9 — save PDF + markdown
+        report_path = save_report(
+            repo_name,
+            "full_scan",
+            final_report,
+            risk_level
+        )
 
-        # step 8 — send to Slack
-        send_to_slack(repo_name, pr_number, report_path, risk_level)
-
-        # step 9 — mark as scanned
-        mark_scanned(repo_name, pr_number)
+        # step 10 — send to Slack
+        send_to_slack(repo_name, "full_scan", report_path, risk_level)
 
     except Exception as e:
-        print(f"  Failed: {e}")
+        print(f"  Repo scan failed: {e}")
         import traceback
         traceback.print_exc()
-        log_failure(repo_name, pr_number, str(e))
+        log_failure(repo_name, "full_scan", str(e))
 
 
 def scan_all():
     """
-    Weekly scan entry point.
-    Discovers all repos with open PRs automatically.
-    Scheduled via cron: 0 9 * * 1 (every Monday 9am)
+    Weekly entry point.
+    Gets all repos and runs full scan on each.
+    Cron: 0 9 * * 1 — every Monday 9am
     """
-    REPOS = get_all_repos()
-    print(f"Found {len(REPOS)} repos with open PRs")
+    from github_client import get_all_repos_full
+    REPOS = get_all_repos_full()
+    print(f"Found {len(REPOS)} repos to scan")
 
     for repo in REPOS:
-        print(f"\nRepo: {repo}")
-        try:
-            prs = get_open_prs(repo)
-            if not prs:
-                print("  No open PRs.")
-                continue
-            print(f"  Open PRs: {prs}")
-            for pr_num in prs:
-                scan_pr(repo, pr_num)
-        except Exception as e:
-            print(f"  Could not process repo {repo}: {e}")
+        scan_repo(repo)
 
 
-# cron: 0 9 * * 1 — runs every Monday 9am
+# cron: 0 9 * * 1 — every Monday 9am
 if __name__ == "__main__":
     pr_number = os.getenv("PR_NUMBER")
     repo = os.getenv("GITHUB_REPO")
 
     if pr_number and repo:
-        scan_pr(repo, int(pr_number))
+        # GitHub Actions mode — scan specific PR inside full repo scan
+        scan_repo(repo)
     else:
+        # cron mode — scan all repos
         scan_all()

@@ -100,18 +100,96 @@ def run_ruff(code):
         return []
 
 
+def run_semgrep(code, ext):
+    """
+    Runs Semgrep on any file type.
+    Uses auto config — picks best rules for the language automatically.
+    Works on Python, JS, TS, YAML, JSON, shell and more.
+    Specifically catches GitHub Actions vulnerabilities in .yml files.
+    """
+    # map extension to semgrep language
+    lang_map = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".go": "go",
+        ".java": "java",
+        ".rb": "ruby",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".json": "json",
+        ".sh": "bash",
+    }
+
+    lang = lang_map.get(ext)
+    if not lang:
+        return []
+
+    with tempfile.NamedTemporaryFile(suffix=ext, mode="w", delete=False) as tmp:
+        tmp.write(code)
+        tmp_path = tmp.name
+
+    result = subprocess.run(
+        [
+            "semgrep",
+            "--config", "auto",
+            "--json",
+            "--quiet",
+            tmp_path
+        ],
+        capture_output=True, text=True
+    )
+    os.unlink(tmp_path)
+
+    try:
+        data = json.loads(result.stdout)
+        findings = []
+        for issue in data.get("results", []):
+            line_num = issue["start"]["line"]
+            lines = code.split("\n")
+            actual_line = lines[line_num - 1].strip() if line_num <= len(lines) else ""
+
+            # try to get function context for Python files
+            func_info = None
+            if ext == ".py":
+                func_info = get_function_at_line(code, line_num)
+
+            findings.append({
+                "line": line_num,
+                "actual_code": actual_line,
+                "function_name": func_info["name"] if func_info else "module level",
+                "function_code": func_info["code"] if func_info else actual_line,
+                "issue": issue["extra"]["message"],
+                "severity": issue["extra"].get("severity", "UNKNOWN"),
+                "rule_id": issue["check_id"],
+                "fix_ref": issue["extra"].get("metadata", {}).get("references", [""])[0] if issue["extra"].get("metadata", {}).get("references") else ""
+            })
+        return findings
+    except:
+        return []
+
+
 def analyze_file(filename, file_info):
+    """
+    Routes each file to the right scanner based on extension.
+    Python files: Bandit + Ruff + Semgrep
+    All other files: Semgrep only
+    """
     code = file_info["code"]
     ext = file_info["ext"]
 
     bandit_findings = []
     ruff_findings = []
+    semgrep_findings = []
 
     if ext == ".py":
         bandit_findings = run_bandit(code)
         ruff_findings = run_ruff(code)
 
-    return bandit_findings, ruff_findings
+    # semgrep runs on everything
+    semgrep_findings = run_semgrep(code, ext)
+
+    return bandit_findings, ruff_findings, semgrep_findings
 
 
 def chunk_files(file_contents, chunk_size=5):

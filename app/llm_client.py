@@ -4,6 +4,7 @@ from openai import OpenAI
 from typing import Dict, Any, List, Optional
 
 
+
 def generate_review(
     pr_title: str,
     pr_body: Optional[str],
@@ -13,7 +14,8 @@ def generate_review(
     metadata: Optional[Dict] = None,
     dependabot: Optional[List] = None,
     sonar_findings: Optional[List] = None,
-    commits: Optional[List] = None
+    commits: Optional[List] = None,
+    semgrep_findings: Optional[List] = None
 ) -> str:
 
     prompt = f"""You are an expert senior software engineer specializing in security and code quality reviews.
@@ -52,6 +54,9 @@ SONARCLOUD FINDINGS:
 
 COMMIT HISTORY:
 {json.dumps(commits, indent=2) if commits else 'No commits found.'}
+
+SEMGREP FINDINGS (all file types including GitHub Actions):
+{json.dumps(semgrep_findings, indent=2) if semgrep_findings else 'No Semgrep findings.'}
 
 Instructions:
 1. Briefly explain what the developer was trying to achieve.

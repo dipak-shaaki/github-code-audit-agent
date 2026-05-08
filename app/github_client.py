@@ -154,3 +154,64 @@ def get_dependabot_alerts(repo_name):
         print(f"  Could not fetch Dependabot alerts: {e}")
 
     return alerts
+
+def get_all_repos_full():
+    """
+    Returns ALL repos your token has access to.
+    Unlike get_all_repos() which filters for open PRs only —
+    this returns everything for full weekly scan.
+    """
+    g = get_github_client()
+    user = g.get_user()
+    repos = user.get_repos()
+    all_repos = []
+    for repo in repos:
+        print(f"  Found repo: {repo.full_name}")
+        all_repos.append(repo.full_name)
+    return all_repos
+
+
+def get_all_scannable_files(repo_name):
+    """
+    Fetches every scannable file from entire repo recursively.
+    
+    How it works:
+    1. Start at root directory
+    2. For each item — if folder, go inside it
+    3. If file with scannable extension — fetch content
+    4. Returns dict of filepath -> {code, ext}
+    
+    This is how full repo scan differs from PR scan:
+    PR scan: only changed lines from diff
+    Full scan: entire content of every file
+    """
+    g = get_github_client()
+    repo = g.get_repo(repo_name)
+    SCANNABLE = set(SCANNABLE_EXTENSIONS.keys())
+
+    files = {}
+    contents = repo.get_contents("")  # start at root
+
+    while contents:
+        item = contents.pop(0)
+
+        if item.type == "dir":
+            # go inside directory
+            try:
+                contents.extend(repo.get_contents(item.path))
+            except Exception as e:
+                print(f"  Warning: Could not read dir {item.path}: {e}")
+
+        elif item.type == "file":
+            ext = os.path.splitext(item.path)[1].lower()
+            if ext in SCANNABLE:
+                try:
+                    code = item.decoded_content.decode("utf-8")
+                    files[item.path] = {
+                        "code": code,
+                        "ext": ext
+                    }
+                except Exception as e:
+                    print(f"  Warning: Could not read {item.path}: {e}")
+
+    return files

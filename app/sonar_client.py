@@ -48,8 +48,6 @@ def get_sonar_issues(pr_number=None):
     
     return findings
 
-
-
 def get_function_at_line(code, line_number):
     tree = ast.parse(code)
     
