@@ -196,7 +196,7 @@ def get_all_scannable_files(repo_name):
         item = contents.pop(0)
 
         if item.type == "dir":
-            # go inside directory
+           
             try:
                 contents.extend(repo.get_contents(item.path))
             except Exception as e:

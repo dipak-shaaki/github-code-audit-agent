@@ -94,10 +94,10 @@ def build_styles():
         ),
         "h3": ParagraphStyle(
             "h3",
-            fontSize=12,
+            fontSize=11,
             fontName="Times-Bold",
             textColor=colors.HexColor("#444444"),
-            spaceBefore=10,
+            spaceBefore=8,
             spaceAfter=4,
         ),
         "body": ParagraphStyle(
@@ -151,8 +151,9 @@ def add_title_page(story, repo_name, pr_number, risk_level):
     }.get(risk_level, colors.grey)
 
     # dark header block
+    report_title = "Repository Audit Report" if str(pr_number) == "full_scan" else "PR Audit Report"
     title_data = [[
-        Paragraph("PR Audit Report", ParagraphStyle(
+    Paragraph(report_title, ParagraphStyle(
             "tp", fontSize=26, fontName="Times-Bold",
             textColor=colors.white, alignment=TA_CENTER
         ))
@@ -169,11 +170,13 @@ def add_title_page(story, repo_name, pr_number, risk_level):
     story.append(Spacer(1, 20))
 
     # metadata table
+    scan_label = "Full Repository Scan" if str(pr_number) == "full_scan" else f"#{pr_number}"
     meta_data = [
-        ["Repository", repo_name],
-        ["PR Number", f"#{pr_number}"],
-        ["Risk Level", risk_level],
-    ]
+    ["Repository", repo_name],
+    ["Scan", scan_label],
+    ["Risk Level", risk_level],
+]
+
     meta_table = Table(meta_data, colWidths=[2 * inch, 4.5 * inch])
     meta_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, -1), LIGHT_GREY),
@@ -193,8 +196,6 @@ def add_title_page(story, repo_name, pr_number, risk_level):
     story.append(HRFlowable(width="100%", thickness=1, color=BORDER_COLOR))
     story.append(Spacer(1, 20))
 
-
-# ─── VS Code Style Code Block ─────────────────────────────────────────────────
 def render_code_block(code_text, language="python"):
     """
     Renders a code block with VS Code dark theme syntax highlighting.

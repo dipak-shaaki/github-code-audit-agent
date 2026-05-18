@@ -3,12 +3,12 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scanner import run_ruff
+from scanner import run_ruff,run_semgrep
 
 
 def analyze_quality(files):
     """
-    Quality Subagent — one job: find code quality issues.
+    Quality Subagent's one job: find code quality issues.
     
     How it works:
     1. Receives dict of filename -> file_info
@@ -34,10 +34,21 @@ def analyze_quality(files):
         ext = file_info["ext"]
         code = file_info["code"]
 
+        ruff_results = []
+        semgrep_results = []
+
         # ruff only works on Python files
         if ext == ".py":
             ruff_results = run_ruff(code)
             if ruff_results:
                 findings[filename] = ruff_results
+
+        semgrep_results = run_semgrep(code, ext)
+        
+        if ruff_results or semgrep_results:
+            findings[filename] = {
+                "ruff": ruff_results,
+                "semgrep": semgrep_results
+            }
 
     return findings

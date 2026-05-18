@@ -32,6 +32,7 @@ def analyze_security(files):
             "semgrep": [{line, issue, rule_id}]
         }
     }
+    
     """
     findings = {}
 

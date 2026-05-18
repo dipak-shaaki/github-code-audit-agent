@@ -2,6 +2,39 @@ import os
 import requests
 
 
+def _extract_top_issues(report_content, max_issues=3):
+    """Extract a clean top-issues summary from markdown without code blocks."""
+    lines = report_content.splitlines()
+    top_issues = []
+    in_code_block = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block or not stripped:
+            continue
+
+        if stripped.startswith("### ") or stripped.startswith("## ") or stripped.startswith("# "):
+            if stripped.startswith("# Repository Audit Report"):
+                continue
+            if stripped.startswith("## Repository Overview"):
+                continue
+            if stripped.startswith("## Repository Issues"):
+                continue
+            if stripped.startswith("## Pull Request Analysis"):
+                continue
+            top_issues.append(stripped)
+        elif stripped.startswith("- ") or stripped.startswith("* ") or stripped.startswith("• "):
+            top_issues.append(stripped)
+
+        if len(top_issues) >= max_issues:
+            break
+
+    return "\n".join(top_issues) if top_issues else "See full report."
+
+
 def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
     """Send summary message + upload full report PDF to Slack."""
 
@@ -16,13 +49,12 @@ def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
     try:
         with open(report_path.replace(".pdf", ".md"), "r") as f:
             report_content = f.read()
-    except:
+    except Exception:
         report_content = "Report file not found."
 
-    # extract top 3 issues
-    lines = report_content.split("\n")
-    issues = [l for l in lines if "Function:" in l or "### Issue" in l][:3]
-    top_issues = "\n".join(issues) if issues else "See full report."
+    report_label = "Full repository scan" if str(pr_number) == "full_scan" else f"PR #{pr_number}"
+    header_text = "Repository Audit Report" if str(pr_number) == "full_scan" else "PR Audit Report"
+    top_issues = _extract_top_issues(report_content)
 
     # step 1 — send summary message
     message_payload = {
@@ -32,25 +64,15 @@ def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"PR Audit Report - {repo_name}"
+                    "text": f"{header_text} - {repo_name}"
                 }
             },
             {
                 "type": "section",
-                "fields": [
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Repository:*\n`{repo_name}`"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*PR Number:*\n#{pr_number}"
-                    },
-                    {
-                        "type": "mrkdwn",
-                        "text": f"*Risk Level:*\n{risk_level}"
-                    }
-                ]
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Repository:* {repo_name}\n*Scan:* {report_label}\n*Risk Level:* {risk_level}"
+                }
             },
             {
                 "type": "section",
@@ -60,10 +82,13 @@ def send_to_slack(repo_name, pr_number, report_path, risk_level="UNKNOWN"):
                 }
             },
             {
+                "type": "divider"
+            },
+            {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": "Full PDF report attached below."
+                    "text": "Full PDF report is attached below."
                 }
             }
         ]

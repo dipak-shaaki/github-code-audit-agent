@@ -101,13 +101,6 @@ def run_ruff(code):
 
 
 def run_semgrep(code, ext):
-    """
-    Runs Semgrep on any file type.
-    Uses auto config — picks best rules for the language automatically.
-    Works on Python, JS, TS, YAML, JSON, shell and more.
-    Specifically catches GitHub Actions vulnerabilities in .yml files.
-    """
-    # map extension to semgrep language
     lang_map = {
         ".py": "python",
         ".js": "javascript",
@@ -129,10 +122,16 @@ def run_semgrep(code, ext):
         tmp.write(code)
         tmp_path = tmp.name
 
+    # use GitHub Actions specific rules for yml files
+    if ext in [".yml", ".yaml"]:
+        config = "p/github-actions"
+    else:
+        config = "auto"
+
     result = subprocess.run(
         [
             "semgrep",
-            "--config", "auto",
+            "--config", config,
             "--json",
             "--quiet",
             tmp_path
@@ -149,7 +148,6 @@ def run_semgrep(code, ext):
             lines = code.split("\n")
             actual_line = lines[line_num - 1].strip() if line_num <= len(lines) else ""
 
-            # try to get function context for Python files
             func_info = None
             if ext == ".py":
                 func_info = get_function_at_line(code, line_num)
@@ -162,13 +160,12 @@ def run_semgrep(code, ext):
                 "issue": issue["extra"]["message"],
                 "severity": issue["extra"].get("severity", "UNKNOWN"),
                 "rule_id": issue["check_id"],
-                "fix_ref": issue["extra"].get("metadata", {}).get("references", [""])[0] if issue["extra"].get("metadata", {}).get("references") else ""
+                "fix_ref": issue["extra"].get("metadata", {}).get("references", [""])[0]
+                if issue["extra"].get("metadata", {}).get("references") else ""
             })
         return findings
     except:
         return []
-
-
 def analyze_file(filename, file_info):
     """
     Routes each file to the right scanner based on extension.

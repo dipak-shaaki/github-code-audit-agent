@@ -14,7 +14,8 @@ def generate_full_report(
     repo_actions,
     sonar_findings,
     pr_findings,
-    commits_by_pr
+    commits_by_pr,
+    semgrep_findings=None,
 ):
     """
     Report Subagent — one job: write the final unified report.

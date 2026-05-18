@@ -80,7 +80,7 @@ def scan_repo(repo_name):
 
         # step 5 — fetch SonarCloud full repo findings
         print("  Fetching SonarCloud findings...")
-        sonar_findings = get_sonar_issues()  # no pr_number = full repo
+        sonar_findings = get_sonar_issues(repo_name=repo_name) 
         print(f"  SonarCloud: {len(sonar_findings)} issues")
 
         # step 6 — scan each open PR
@@ -102,7 +102,7 @@ def scan_repo(repo_name):
                 commits = get_pr_commits(repo_name, pr_num)
                 commits_by_pr[pr_num] = commits
 
-                # run subagents on PR changed files only
+                # run subagents on files only
                 pr_security = analyze_security(pr_files)
                 pr_quality = analyze_quality(pr_files)
                 pr_actions = analyze_github_actions(pr_files)
